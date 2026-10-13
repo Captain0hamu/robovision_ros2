@@ -7,9 +7,13 @@
 class ImagePublisherNode : public rclcpp::Node
 {
 public:
+    int counter_ = 0;
+
     ImagePublisherNode(const std::string & image_path) : Node("image_publisher")
     {
-        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("camera/image", 10);
+        image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("camera/image", 5);
+
+        scaled_image_publisher_ = this->create_publisher<sensor_msgs::msg::Image>("camera/scaled_image", 5);
 
         // Load the image from file
         cv::Mat cv_image = cv::imread(image_path, cv::IMREAD_COLOR);
@@ -18,8 +22,14 @@ public:
             return;
         }
 
+        cv::Mat scaled_image;
+        cv::resize(cv_image, scaled_image, cv::Size(), 0.5, 0.5, CV_INTER_AREA);
+        
+
         //Convert the output data into a ROS message format
 	    image_msg_ = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cv_image).toImageMsg();
+
+	    scaled_image_msg_ = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", scaled_image).toImageMsg();
 
         image_timer_ = this->create_wall_timer(std::chrono::milliseconds(30),
                                                std::bind(&ImagePublisherNode::publish_image, this));
@@ -29,14 +39,16 @@ public:
 
 private:
     
-    sensor_msgs::msg::Image::SharedPtr image_msg_;
+    sensor_msgs::msg::Image::SharedPtr image_msg_, scaled_image_msg_;
 
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr scaled_image_publisher_;
     rclcpp::TimerBase::SharedPtr image_timer_;
 
     void publish_image()
     {
         image_publisher_->publish(*image_msg_);
+        scaled_image_publisher_->publish(*scaled_image_msg_);
     }
 };
 

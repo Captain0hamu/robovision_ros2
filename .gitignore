@@ -1,0 +1,9 @@
+build/
+install/
+log/
+data/rosbags/**/*.db3
+
+# ROS 2 / colcon generated files
+*.pyc
+__pycache__/
+

@@ -12,8 +12,13 @@ public:
     {
         //Subscribers
         image_subscriber_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "camera/image", 10, std::bind(&ImageSubscriberNode::callback_image, this, std::placeholders::_1));
+            "camera/image", 10, std::bind(&ImageSubscriberNode::callback_image, this, std::placeholders::_1
+              ));
         
+        scaled_image_subscrber_ = this->create_subscription<sensor_msgs::msg::Image>(
+            "camera/scaled_image", 10, std::bind(&ImageSubscriberNode::callback_scaled_image, this, std::placeholders::_1
+              ));
+
         //Processing
         image_processing_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(30),
@@ -24,17 +29,23 @@ public:
 
 private:
     
-    bool is_image_;
-    cv::Mat image_;
-    sensor_msgs::msg::Image::SharedPtr image_msg_;
+    bool is_image_, is_scaled_image_;
+    cv::Mat image_, scaled_image_;
+    sensor_msgs::msg::Image::SharedPtr image_msg_, scaled_msg_;
 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscriber_, scaled_image_subscrber_;
     rclcpp::TimerBase::SharedPtr image_processing_timer_;
 
     void callback_image(const sensor_msgs::msg::Image::SharedPtr msg)
     {
         image_ = cv_bridge::toCvCopy(msg, "bgr8")->image;
         is_image_ = true;
+    }
+
+    void callback_scaled_image(const sensor_msgs::msg::Image::SharedPtr msg)
+    {
+        scaled_image_ = cv_bridge::toCvCopy(msg, "bgr8")->image;
+        is_scaled_image_ = true;
     }
 
     void image_processing()

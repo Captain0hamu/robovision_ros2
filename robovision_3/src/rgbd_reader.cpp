@@ -5,13 +5,21 @@
 #include "sensor_msgs/msg/point_field.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 
+#include <cstddef>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
+#include <tf2/LinearMath/Quaternion.h>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+
 #include <iostream>
+#include <string>
 #include <vector>
 #include <exception>
+
 
 class PointCloudCentroidNode : public rclcpp::Node
 {
@@ -23,17 +31,24 @@ public:
             "/object_centroid", 10);
 
         // Subscribers
-        rgb_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/camera/rgb/image_rect_color", 10, 
-            std::bind(&PointCloudCentroidNode::callback_rgb_rect, this, std::placeholders::_1));
+        rgb_sub_.subscribe( this, "/camera/rgb/image_rect_color");
+
+        depth_sub_.subscribe( this, "/camera/depth_registered/image");
+
+        sync_ = std::make_shared< message_filters::Synchronizer<SyncPolicy> >( SyncPolicy(10), rgb_sub_, depth_sub_);
+
+        sync_->registerCallback(
+            std::bind(
+                &PointCloudCentroidNode::sync_callback,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2
+            )
+        );
         
-        depth_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-            "/camera/depth_registered/image", 10, 
-            std::bind(&PointCloudCentroidNode::callback_depth_rect, this, std::placeholders::_1));
-        
-        point_cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        //point_cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             "/camera/depth_registered/points", 10, 
-            std::bind(&PointCloudCentroidNode::callback_point_cloud, this, std::placeholders::_1));
+            std::bind(&PointCloudCentroidNode::callback_point_cloud, this, std::placeholders::_1);
         
         // Processing
         processing_timer_ = this->create_wall_timer(
@@ -43,7 +58,16 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting point_cloud_centroid application in cpp...");
     }
 
+
 private:
+    using Image = sensor_msgs::msg::Image;
+
+    using SyncPolicy = message_filters::sync_policies::ApproximateTime<Image, Image>;
+
+    message_filters::Subscriber<Image> rgb_sub_;
+    message_filters::Subscriber<Image> depth_sub_;
+
+    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
     bool is_ptcld_;
     bool display_;
@@ -51,9 +75,7 @@ private:
 
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr centroid_publisher_;
 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr rgb_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_sub_;
+    //Subscribers
 
     rclcpp::TimerBase::SharedPtr processing_timer_;
 
@@ -123,58 +145,146 @@ private:
         }
     }
 
+    void sync_callback( const Image::ConstSharedPtr& rgb_msg, const Image::ConstSharedPtr& depth_msg)
+    {
+        try
+        {
+            // RGB画像
+            auto rgb_ptr = cv_bridge::toCvCopy(
+                rgb_msg, "bgr8"
+            );
+
+            cv::Mat debug_rgb = rgb_ptr->image;
+
+            // Depth画像（元のエンコーディングを維持）
+            auto depth_ptr = cv_bridge::toCvShare(depth_msg);
+
+            cv::Mat depth;
+
+            if (depth_msg->encoding == "32FC1")
+            {
+                // 通常はメートル単位
+                depth = depth_ptr->image;
+            }
+            else if (depth_msg->encoding == "16UC1")
+            {
+                // 通常はミリメートル単位
+                depth_ptr->image.convertTo(
+                    depth,
+                    CV_32F,
+                    0.001
+                );
+            }
+            else
+            {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Unsupported depth encoding: %s",
+                    depth_msg->encoding.c_str()
+                );
+                return;
+            }
+
+            if (debug_rgb.size() != depth.size())
+            {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "RGB/Depth resolution mismatch"
+                );
+                return;
+            }
+
+            detect(depth, debug_rgb);
+
+            cv::imshow("face detection window", debug_rgb);
+            cv::waitKey(1);
+        }
+        catch (const std::exception& e)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Image processing failed: %s",
+                e.what()
+            );
+        }
+    }
+
+    void detect(const cv::Mat& depth, cv::Mat& debug_rgb) {
+        if (depth.empty() || debug_rgb.empty())
+            return;
+
+        cv::Mat mask;
+
+        // 深度が0.5m〜1.5mの画素を抽出
+        cv::inRange( depth, cv::Scalar(0.5f), cv::Scalar(1.5f), mask);
+
+        // 各連結領域にラベルを付与
+        cv::Mat labels, stats, centroids;
+
+        int count = cv::connectedComponentsWithStats( mask, labels, stats, centroids, 8, CV_32S);
+
+        int largest_id = -1;
+        int largest_area = 100; // 小さい領域を除外
+
+        // ID 0は背景なので1から開始
+        for (int i = 1; i < count; i++)
+        {
+            int area = stats.at<int>(
+                i, cv::CC_STAT_AREA
+            );
+
+            if (area > largest_area)
+            {
+                largest_area = area;
+                largest_id = i;
+            }
+        }
+
+        if (largest_id == -1)
+            return;
+
+        // 最大領域の重心
+        int center_x = static_cast<int>(
+            centroids.at<double>(largest_id, 0)
+        );
+
+        int center_y = static_cast<int>(
+            centroids.at<double>(largest_id, 1)
+        );
+
+        cv::Point center(center_x, center_y);
+
+        cv::circle( debug_rgb, center, 5, cv::Scalar(0, 255, 0), -1);
+    }
+
     void point_cloud_processing() 
     {
-        if (is_ptcld_) 
-        {
-            // Access a point in the point_cloud (e.g., midpoint of the matrix)
-            int rows = point_cloud_.rows;
-            int cols = point_cloud_.cols;
-            int row_id = rows / 2;
-            int col_id = cols / 2;
-
-            // Ensure the indices are within valid bounds
-            if (row_id >= 0 && row_id < rows && col_id >= 0 && col_id < cols) 
-            {
-                // Extract the point at the specified location (row_id, col_id)
-                cv::Vec4f point = point_cloud_.at<cv::Vec4f>(row_id, col_id);
-
-                // Assign the extracted point's coordinates to centroid_
-                geometry_msgs::msg::Pose centroid;
-
-                centroid.position.x = static_cast<float>(point[0]); // x
-                centroid.position.y = static_cast<float>(point[1]); // y
-                centroid.position.z = static_cast<float>(point[2]); // z
-
-                // Set a default orientation
-                centroid.orientation.x = 0.0;
-                centroid.orientation.y = 0.0;
-                centroid.orientation.z = 0.0;
-                centroid.orientation.w = 1.0;
-
-                RCLCPP_INFO(this->get_logger(), "Central point: x=%.3f, y=%.3f, z=%.3f", point[0], point[1], point[2]);
-
-                // Publish the centroid pose
-                centroid_publisher_->publish(centroid);
-            } 
-            else 
-            {
-                RCLCPP_WARN(this->get_logger(), "PointCloud index out of bounds");
-            }
-
-            if (display_) 
-            {
-                cv::imshow("RGB Image", rgb_);
-                cv::imshow("Depth Image", depth_);
-                cv::waitKey(1);
-            }
-        } 
-        else 
-        {
+        if (!is_ptcld_) {
             RCLCPP_WARN(this->get_logger(), "Empty point cloud matrix.");
+            return;
+        }
+
+        const int rows = point_cloud_.rows;
+        const int cols = point_cloud_.cols;
+
+        cv::Mat debug_rgb = rgb_.clone(); 
+
+        double minVal, maxVal;
+        cv::minMaxLoc(depth_, &minVal, &maxVal);
+        std::cout << "depth_ min: " << minVal << ", max: " << maxVal << std::endl;
+
+
+        if (display_ && !debug_rgb.empty()) {
+            detect(debug_rgb);
+            cv::imshow("face detection window", debug_rgb);
+            if (!depth_.empty()) {
+                cv::imshow("Depth Image", depth_);
+            }
+            cv::waitKey(1);
         }
     }
 };
+
 
 int main(int argc, char **argv)
 {
