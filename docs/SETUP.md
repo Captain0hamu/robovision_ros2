@@ -1,13 +1,13 @@
-# セットアップと再現
+# 環境構築とデータの作成
 
 ## 基本環境
 
 - Ubuntu 22.04 / ROS 2 Humble
 - OpenCV / cv_bridge / image_transport / message_filters / RViz2
-- 生成時のみ: Python 3、PyTorch、Transformers、NumPy、PyYAML
+- Depth推定を行う場合: Python 3、PyTorch、Transformers、NumPy、PyYAML
 
-既存のDockerイメージ `tidbots/hsr-ros2:humble-nvidia` でも動作確認しています。
-このforkには親ディレクトリのDocker設定・ネットワーク設定・パスワードは含めません。
+Dockerイメージ `tidbots/hsr-ros2:humble-nvidia` で動作確認しています。
+手元のDocker設定やネットワーク設定は、このリポジトリには含めていません。
 
 ```bash
 git clone https://github.com/Captain0hamu/robovision_ros2.git
@@ -18,34 +18,35 @@ colcon build
 source install/setup.bash
 ```
 
-ROSをインストール済みで、rosdep初期化・必要なapt依存の導入権限があることが前提です。
-GUIをコンテナで使う場合はDISPLAY/X11を別途設定してください。
+先にROSのインストールとrosdepの初期化を済ませてください。
+依存パッケージのインストールには管理者権限が必要です。
+コンテナからGUIを表示する場合は、DISPLAY/X11も設定してください。
 
-## 推定モデルのPython依存
+## Depth推定に必要なPythonパッケージ
 
-推論を行わないbag再生にはPyTorch・Transformersは不要です。
-生成用には `tools/requirements-depth.txt` を参照してください。
-PyTorchはCPU/CUDAに合うビルドを公式手順で導入します。
-ROSのPythonパッケージが見えるPython環境で利用してください。
+bagを再生するだけなら、PyTorchとTransformersは不要です。
+動画からDepthを推定する場合は、`tools/requirements-depth.txt` を参照してください。
+PyTorchは公式手順に従い、使用するCPU/CUDAに合ったものをインストールします。
+実行には、ROSのPythonパッケージも読み込める環境が必要です。
 
-モデル: `LiheYoung/depth-anything-small-hf`。
-初回はネット接続が必要で、約95MiBの重みがHugging Faceキャッシュへ保存されます。
-検証時の組合せはPyTorch 2.12.1+cu130、Transformers 4.40.0、
-NumPy 1.26.4、OpenCV 4.11.0です。すべてのバージョンでの動作を保証するものではありません。
+使用モデルは `LiheYoung/depth-anything-small-hf` です。
+初回に約95MiBの重みをダウンロードし、Hugging Faceのキャッシュに保存します。
+動作確認に使ったバージョンは、PyTorch 2.12.1+cu130、Transformers 4.40.0、
+NumPy 1.26.4、OpenCV 4.11.0です。
 
 ## 動画を一度だけ処理して保存する
 
-ROS環境・モデル依存を読み込んだ状態で実行します。
+ROS環境を読み込み、上記のPythonパッケージをインストールしてから実行します。
 
 ```bash
 python3 tools/video_to_depth_bag.py /path/to/video_01.mp4 \
   /path/to/hoodie_01.mp4 --output-root data/rosbags
 ```
 
-既存の出力は上書きしません。再生成時は別の出力先を使い、検証後に入れ替えてください。
-GPU未対応環境ではCPUへフォールバックします。`--cpu` でCPUを明示できます。
+同名のbagがあると処理を止めるため、作り直すときは別の出力先を指定してください。
+GPUが使えない場合は自動でCPUに切り替わります。`--cpu` を付ければ、GPUがあってもCPUで処理します。
 
-Dockerで実行する例（既存イメージの利用）:
+Dockerで実行する場合：
 
 ```bash
 docker run --rm --gpus all --entrypoint bash \
@@ -57,8 +58,9 @@ docker run --rm --gpus all --entrypoint bash \
    python3 tools/video_to_depth_bag.py /videos/*.mp4 --output-root data/output_bags'
 ```
 
-この例のキャッシュ先は検証イメージのユーザー設定用です。別イメージではHF_HOME等で調整します。
-GPUを渡さない場合は `--gpus all` を外してください。
+キャッシュの保存先は、このイメージのユーザー名に合わせています。
+別のイメージでは、マウント先や `HF_HOME` を調整してください。
+GPUを使わない場合は `--gpus all` を外します。
 
 ## 実測RGB-Dとの使い分け
 
@@ -66,5 +68,5 @@ GPUを渡さない場合は `--gpus all` を外してください。
 - `person_rgbd_1`: 圧縮RGB・compressedDepthを `rgbd_cloud_demo` で展開して点群化。
 - `video_*` / `hoodie_*`: 点群保存済みなのでbagを再生するだけ。
 
-トピック名・圧縮方式が異なるため、同じlaunchで混用しないでください。
-同時起動するノードはROS_DOMAIN_ID・RMW_IMPLEMENTATIONを揃えます。
+データごとにトピック名や圧縮方式が違うため、対応するlaunchを使ってください。
+通信するノード同士で、ROS_DOMAIN_IDとRMW_IMPLEMENTATIONを揃える必要があります。

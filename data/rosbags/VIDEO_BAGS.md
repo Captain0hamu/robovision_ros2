@@ -1,7 +1,7 @@
 # 動画から作成したROS 2 bag
 
-`video_01/`～`video_04/` と `hoodie_01/`～`hoodie_04/` は、それぞれ1本の
-MP4動画を独立したROS 2 bagへ変換したものです。
+`video_01/`～`video_04/` と `hoodie_01/`～`hoodie_04/` には、
+動画ごとにRGB・推定Depth・点群をまとめたROS bagを置いています。
 
 - RGB: `/camera/rgb/image/compressed`（JPEG）
 - 推定Depth: `/camera/depth/image/compressed`（16UC1 PNG、2 cm単位）
@@ -9,7 +9,7 @@ MP4動画を独立したROS 2 bagへ変換したものです。
 - 色付き疑似PointCloud: `/camera/depth/points`（102,480点/フレーム）
 - 収録レート: 15 fps
 - `video.mp4`: 変換元動画のコピー
-- bag内の時刻: 開始はMP4更新時刻（撮影時刻とは限らない）、元30 fpsから15 fps分を抽出
+- bag内の時刻: MP4の更新時刻を起点に、15fpsの間隔で記録（撮影時刻とは限りません）
 
 | データ名 | 動画長 |
 |---|---|
@@ -31,7 +31,7 @@ ros2 bag info data/rosbags/video_01
 ros2 bag play data/rosbags/video_01 --loop
 ```
 
-RGB・Depth・PointCloudを設定済みRVizで表示する例:
+RGB・Depth・点群をRVizでまとめて表示する場合：
 
 ```bash
 source install/setup.bash
@@ -50,8 +50,7 @@ ros2 run image_transport republish compressed raw \
 
 ## 別の動画を変換する方法
 
-この環境ではROS 2がDocker内にあるため、ホストの動画ディレクトリをマウントして
-オフライン変換スクリプトを実行します。
+Dockerで動画からbagを作る例です。ホスト側の動画フォルダを読み取り専用でマウントします。
 
 ```bash
 cd ~/ros2_docker
@@ -64,7 +63,6 @@ docker run --rm --gpus all --entrypoint bash \
      --output-root data/output_bags'
 ```
 
-出力先に同名のbagがある場合は、誤上書きを防ぐため変換を停止します。
+同名のbagがあると処理を止めます。作り直すときは、別の出力先を指定してください。
 
-この処理はGPU推論を一度だけ行うオフライン変換です。作成済みbagの再生時には
-GPU推論しません。
+推論するのは、この変換を行うときだけです。作成したbagの再生中は推論しません。

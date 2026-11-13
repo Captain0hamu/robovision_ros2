@@ -1,38 +1,39 @@
 # カスタマイズレポート
 
-## 1. ベースと移行範囲
+## 1. 元にした教材
 
-上流: [ARTenshi/robovision_ros2](https://github.com/ARTenshi/robovision_ros2)。
-既存の非公開作業repo `Robovision_env` に保存されていた教材実験と、
-ローカルで追加したRGB-D・単眼Depth関連の変更をこのforkへ統合しました。
-上流の履歴・著者表記・教材説明は保持します。
+[ARTenshi/robovision_ros2](https://github.com/ARTenshi/robovision_ros2) をforkし、
+以前の `Robovision_env` で行った実験と、手元で追加したRGB-D・単眼Depthの機能をまとめました。
+元教材の履歴、著者表記、説明はそのまま残しています。
 
-## 2. 既存の教材カスタム
+## 2. 教材に加えた変更
 
-- Lesson 1: 原寸／半分サイズ画像のPublishとSubscribe。
-- Lesson 2: グレースケール、反転画像、色マスク、フレーム番号表示等。
-- Lesson 3: 日本語解説、RGB-D同期の試作、サンプル点のPose出力。
+- Lesson 1：元画像と半分に縮小した画像の配信・受信。
+- Lesson 2：グレースケール変換、画像の反転、色マスク、フレーム番号の表示。
+- Lesson 3：日本語の解説、RGB-D同期の試作、画像内のサンプル点からPoseを出力する処理。
 
-`rgbd_reader.cpp` は実験途中のコードを保持しており、CameraInfoトピックを
-PointCloud2として購読する等の問題が残っています。推奨経路では使用しません。
-`src/tmp.cpp` は未ビルドの試作です。削除済みだった `src/comment.cpp` は復元せず、
-旧コミットから参照できます。未確認コードの一括削除・書換えは行っていません。
+`rgbd_reader.cpp` は実験途中のまま残しています。CameraInfoのトピックを
+PointCloud2として購読するなどの問題があるため、通常は後述の同期ノードを使ってください。
+`src/tmp.cpp` も試作コードで、ビルドには含めていません。
+削除済みの `src/comment.cpp` は過去のコミットから確認できます。
 
 ## 3. 実測RGB-Dの同期処理
 
 `robovision_3/src/rgbd_reader_sync.cpp` はRGB・Depth・RGB CameraInfoを
-ApproximateTimeで同期し、顔検出表示と点群生成を同じcallbackで処理します。
-Depthの16UC1はmm→m、32FC1はmとして扱い、校正行列からXYZを計算します。
-RGBに位置合わせ済みのDepthを前提とし、位置合わせ自体は行いません。
+ApproximateTimeで同期し、同じコールバックで顔検出の表示と点群の生成を行います。
+Depthが16UC1ならmmからmに変換し、32FC1ならそのままmとして使います。
+XYZはCameraInfoの校正行列から計算します。DepthはRGBに位置合わせされている必要があり、
+このノードでは位置合わせを行いません。
 
-独立パッケージ `test/`（`rgbd_cloud_demo`）は、`person_rgbd_1` の
-圧縮RGB・compressedDepthをノード内で展開します。
-両経路のトピック・制限・詳細検証は各READMEへ分離しています。
+`test/` にある別パッケージ `rgbd_cloud_demo` は、`person_rgbd_1` の
+圧縮RGBとcompressedDepthをノード内で展開して点群を作ります。
+トピックや使い方、動作確認の詳細は [RGB-D同期](../robovision_3/RGBD_SYNC.md) と
+[rgbd_cloud_demo](../test/README.md) を参照してください。
 
 ## 4. 単眼動画からの推定データ作成
 
-通常のUbuntuカメラ動画には実測Depthがないため、Depth Anything Smallで
-相対Depthを推定します。リアルタイム版も残していますが、日常利用はオフライン版です。
+通常のカメラアプリで撮った動画にはDepthがないため、Depth Anything Smallで奥行きを推定します。
+リアルタイムで推定するノードもありますが、普段は結果をbagに保存して使います。
 
 ```text
 MP4 → Depth Anything（初回生成時のみ）
@@ -41,35 +42,34 @@ MP4 → Depth Anything（初回生成時のみ）
     → ros2 bag play（推論なし）
 ```
 
-GPU発熱を抑えるため、毎回推論する方式から結果保存方式へ変更しました。
-点群密度は12→6→3画素間隔、保存レートは10→15fpsへ改善。
-最終条件は102,480点/フレーム、15fps、点表示5pxです。
-Camera動画4本とHoodie動画4本を同じ条件で用意しました。
-元動画が30fpsなので、60fps化や偽フレームの補間は行っていません。
+再生のたびに推論するとGPUが熱くなるため、一度作った結果を保存する方式に変えました。
+点の間隔は12画素から6画素、さらに3画素へ狭め、保存するfpsも10から15に上げています。
+現在は1フレームあたり102,480点、15fpsで、RVizの点サイズは5pxです。
+Camera動画4本とHoodie動画4本を、この条件で作成しました。
+元動画は30fpsです。60fps化や中間フレームの生成は行っていません。
 
-## 5. 検証とその範囲
+## 5. 動作確認
 
-ローカルDocker / ROS 2 Humble環境で以下を確認しています。
+手元のDocker / ROS 2 Humble環境で、次の項目を確認しました。
 
-- `robovision_images` のビルド、launch引数の解決。
-- 移行時に独立したビルド領域で `robovision_images`、`robovision_rgbd`、
-  `rgbd_cloud_demo` のクリーンビルドを再確認。
-  旧 `rgbd_reader.cpp` の未使用変数 `roll` に警告が1件残る。
-- 生成済み全8bagのメタデータ・画像復号・102,480点・同期timestamp。
-- コピーした元MP4のSHA-256一致。
-- GPUを渡さないbag再生でPointCloudを受信。
-- `hoodie_01` の受信レートが平均15.00Hz。
-- 以前の実測RGB-D検証: `person_rgbd_1` の点群生成、static/dynamicの同期点群生成。
+- `robovision_images`、`robovision_rgbd`、`rgbd_cloud_demo` が新しいビルド領域でビルドできること。
+  旧 `rgbd_reader.cpp` には、未使用変数 `roll` の警告が1件残っています。
+- `robovision_images` のlaunch引数を読み込めること。
+- 全8bagの画像を復号でき、点群が102,480点で、4トピックの時刻が一致すること。
+- コピーしたMP4と元ファイルのSHA-256が一致すること。
+- GPUなしのbag再生でPointCloudを受信できること。
+- `hoodie_01` を平均15.00Hzで受信できること。
+- 実測RGB-Dから点群を作れること（`person_rgbd_1`、`person_static`、`person_dynamic`。以前の確認結果）。
 
-画像・点群データの読出しと通信確認は、すべての視点での見た目の保証ではありません。
-RViz描画は環境によりGPUを使い、描画負荷やDDS転送量は密度に伴い増えます。
-「GPU推論なし」は「GPU使用率が必ずゼロ」という意味ではありません。
+ここで確認したのは、データを読み出して配信・受信できることです。
+点群の隙間の見え方は、視点や表示設定によって変わります。
+また、点数を増やすほど描画と通信は重くなります。推論をしなくても、RVizの描画にGPUを使うことはあります。
 
-## 6. 限界・今後の課題
+## 6. 注意点と残っている課題
 
-- 単眼推定の絶対距離は不明。疑似m値を実測値として扱わない。
-- フレームごとの正規化によりDepthが時間的に揺れる可能性がある。
-- CameraInfoは仮定画角であり、実カメラを校正した値ではない。
-- 点群は表面をサンプリングした点であり、メッシュや隠れた面の復元ではない。
-- 公開repoには約6GiBのデータ実体を含めない。再現には入力動画が必要。
-- 上流全体のライセンスが不明なため、新たな全体ライセンスを付与しない。
+- 単眼推定では実際の距離は分かりません。m表記でも、実測値としては使えません。
+- フレームごとに正規化するため、Depthが時間とともに揺れることがあります。
+- CameraInfoには仮の画角を使っており、実カメラを校正した値ではありません。
+- 点群は見えている表面の点です。面を張ったメッシュや、隠れた部分は作っていません。
+- 約6GiBのbagと動画はGitHubには含めていません。同じデータを作るには元動画が必要です。
+- 元教材全体のライセンスが不明なため、このforkでも新たな全体ライセンスは付けていません。

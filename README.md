@@ -1,7 +1,8 @@
 # Robot Vision — ROS 2 カスタム実験集
 
 [ARTenshi/robovision_ros2](https://github.com/ARTenshi/robovision_ros2) の教材をベースに、
-RGB-D同期、色付き点群生成、単眼動画のDepth推定、オフラインbag生成を追加したforkです。
+RGB-Dの同期や色付き点群の生成、通常のカメラ動画からのDepth推定を追加しています。
+推定結果はROS bagに保存できるため、再生のたびに推論する必要はありません。
 元教材の著者は Luis Contreras / Hiroyuki Okada です。
 
 > **動画から作成したDepth・点群はAIによる推定です。実測距離ではありません。**
@@ -11,18 +12,18 @@ RGB-D同期、色付き点群生成、単眼動画のDepth推定、オフライ�
 
 | 内容 | ドキュメント |
 |---|---|
-| 変更内容・設計・検証・制限のレポート | [カスタマイズレポート](docs/CUSTOMIZATION_REPORT.md) |
-| 環境構築・再現方法 | [セットアップ](docs/SETUP.md) |
-| データの管理・公開方針 | [データガイド](docs/DATASETS.md) |
+| 追加した機能と動作確認の結果 | [カスタマイズレポート](docs/CUSTOMIZATION_REPORT.md) |
+| 環境構築とデータの作り方 | [セットアップ](docs/SETUP.md) |
+| データの構成と注意点 | [データガイド](docs/DATASETS.md) |
 | 動画から推定Depth・点群を生成 | [単眼Depth](robovision_1/MONOCULAR_DEPTH.md) |
 | RGB-D同期・顔検出・点群生成 | [RGB-D同期](robovision_3/RGBD_SYNC.md) |
 | 圧縮RGB-Dから点群を生成 | [rgbd_cloud_demo](test/README.md) |
 | 元教材 | [オリジナルREADME](docs/UPSTREAM_README.md) |
 
-## 最短で再生する
+## bagを再生する
 
 Ubuntu 22.04 / ROS 2 Humble 環境で、リポジトリ直下から実行します。
-**bag・動画は公開リポジトリに含まれません。別途配置または生成してください。**
+**bagと動画はGitHubには含めていません。手元のデータを配置するか、動画から作成してください。**
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -33,14 +34,14 @@ source install/setup.bash
 ros2 bag play data/rosbags/video_01 --loop
 ```
 
-またはbag再生とRVizをまとめて起動します（上記のbag再生とは同時起動しない）。
+bagとRVizをまとめて起動する場合はこちらを使います。上の再生コマンドとは、どちらか一方を実行してください。
 
 ```bash
 ros2 launch robovision_images play_depth_bag.launch.py \
   bag:=$PWD/data/rosbags/hoodie_01
 ```
 
-RVizの描画にはGPUを使う場合がありますが、保存済みbagの再生ではDepth推論しません。
+RVizの描画にGPUを使うことはありますが、bagの再生中にDepthの推論は行いません。
 
 ## ディレクトリ構成
 
@@ -53,15 +54,15 @@ robovision_interfaces/ メッセージ・サービス定義
 test/                  独立ROSパッケージ rgbd_cloud_demo
 tools/                 動画→bagのオフライン変換
 docs/                  セットアップ・データ説明・変更レポート
-data/                  教材画像・bagメタデータ（大容量実体はローカル）
+data/                  教材画像・bagメタデータ（動画やbag本体は手元で管理）
 ```
 
-`rgbd_reader.cpp` と `tmp.cpp` は既存の実験コードとして保持しています。
-新規利用では検証済みの `rgbd_reader_sync` または `rgbd_cloud_demo` を推奨します。
+`rgbd_reader.cpp` と `tmp.cpp` は過去の実験コードとして残しています。
+これから使う場合は、動作確認済みの `rgbd_reader_sync` または `rgbd_cloud_demo` を選んでください。
 
 ## 権利・公開範囲
 
-元教材の著者表記を保持しています。上流にリポジトリ全体のLICENSEが確認できないため、
-本forkで独自に全体へライセンスを付け直していません。
-モデル・OpenCV付属のCascade・外部データの利用条件は各配布元を確認してください。
-個人撮影動画・bag・モデル重み・認証情報は公開対象外です。
+元教材の著者表記はそのまま残しています。元リポジトリには全体のLICENSEが見当たらないため、
+このforkでも新たなライセンスは付けていません。
+モデル、OpenCV付属のCascade、外部データの利用条件は、それぞれの配布元を確認してください。
+個人で撮影した動画やbag、モデルの重み、認証情報は公開していません。
