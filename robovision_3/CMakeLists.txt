@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
@@ -19,6 +20,7 @@ find_package(geometry_msgs REQUIRED)
 
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(message_filters REQUIRED)
 
 include_directories(${cv_bridge_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
 
@@ -34,12 +36,26 @@ ament_target_dependencies(rgbd_reader
     tf2_geometry_msgs
 )
 
+add_executable(rgbd_reader_sync src/rgbd_reader_sync.cpp)
+ament_target_dependencies(rgbd_reader_sync
+    rclcpp
+    ament_index_cpp
+    cv_bridge
+    sensor_msgs
+    geometry_msgs
+    OpenCV
+    tf2
+    tf2_geometry_msgs
+    message_filters
+)
+
 # Python section
 ament_python_install_package(${PROJECT_NAME})
 
 # Ensure both are included
 install(TARGETS
 rgbd_reader
+rgbd_reader_sync
   DESTINATION lib/${PROJECT_NAME}
 )
 install(PROGRAMS
@@ -47,5 +63,6 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(DIRECTORY config launch rviz DESTINATION share/${PROJECT_NAME})
 
 ament_package()

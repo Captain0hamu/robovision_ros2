@@ -3,7 +3,27 @@ install/
 log/
 data/rosbags/**/*.db3
 
+# Private recordings, generated bags and model weights (metadata/docs stay tracked)
+*.db3
+*.db3-*
+*.mcap
+*.bag
+*.db3.zstd
+*.mp4
+*.webm
+*.avi
+*.mov
+*.mkv
+*.safetensors
+*.pth
+*.pt
+.env
+.env.*
+!.env.example
+data/output_bags/
+data/input_bags/
+data/*_backup/
+
 # ROS 2 / colcon generated files
 *.pyc
 __pycache__/
-

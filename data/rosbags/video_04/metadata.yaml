@@ -1,0 +1,44 @@
+rosbag2_bagfile_information:
+  version: 5
+  storage_identifier: sqlite3
+  duration:
+    nanoseconds: 38266666667
+  starting_time:
+    nanoseconds_since_epoch: 1793873971564052827
+  message_count: 2300
+  topics_with_message_count:
+    - topic_metadata:
+        name: /camera/depth/points
+        type: sensor_msgs/msg/PointCloud2
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 575
+    - topic_metadata:
+        name: /camera/rgb/camera_info
+        type: sensor_msgs/msg/CameraInfo
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 575
+    - topic_metadata:
+        name: /camera/depth/image/compressed
+        type: sensor_msgs/msg/CompressedImage
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 575
+    - topic_metadata:
+        name: /camera/rgb/image/compressed
+        type: sensor_msgs/msg/CompressedImage
+        serialization_format: cdr
+        offered_qos_profiles: ""
+      message_count: 575
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - data.db3
+  files:
+    - path: data.db3
+      starting_time:
+        nanoseconds_since_epoch: 1793873971564052827
+      duration:
+        nanoseconds: 38266666667
+      message_count: 2300

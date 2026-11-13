@@ -1,137 +1,67 @@
-# An Introduction to Robot Vision
+# Robot Vision — ROS 2 カスタム実験集
 
-We present a short introduction to Robot Vision. We first present the basic concepts of image publishers and subscribers in ROS2 and then we apply some basic commands to introduce the students to the digital image processing theory; finally, we present some RGBD and point cloud notions and applications.
+[ARTenshi/robovision_ros2](https://github.com/ARTenshi/robovision_ros2) の教材をベースに、
+RGB-D同期、色付き点群生成、単眼動画のDepth推定、オフラインbag生成を追加したforkです。
+元教材の著者は Luis Contreras / Hiroyuki Okada です。
 
-For a ROS1 version of this project, please refer to [here](https://github.com/ARTenshi/robovision_ros1).
+> **動画から作成したDepth・点群はAIによる推定です。実測距離ではありません。**
+> 距離計測・衝突回避・安全制御には使用しないでください。
 
-# Prerequisites
+## ドキュメント
 
-Things that you need to install the software and how to install them
+| 内容 | ドキュメント |
+|---|---|
+| 変更内容・設計・検証・制限のレポート | [カスタマイズレポート](docs/CUSTOMIZATION_REPORT.md) |
+| 環境構築・再現方法 | [セットアップ](docs/SETUP.md) |
+| データの管理・公開方針 | [データガイド](docs/DATASETS.md) |
+| 動画から推定Depth・点群を生成 | [単眼Depth](robovision_1/MONOCULAR_DEPTH.md) |
+| RGB-D同期・顔検出・点群生成 | [RGB-D同期](robovision_3/RGBD_SYNC.md) |
+| 圧縮RGB-Dから点群を生成 | [rgbd_cloud_demo](test/README.md) |
+| 元教材 | [オリジナルREADME](docs/UPSTREAM_README.md) |
 
-```
-You should have ROS2 installed.
-You should have OpenCV for ROS2 installed.
-```
-# Installation
+## 最短で再生する
 
-## 0. Requirements
+Ubuntu 22.04 / ROS 2 Humble 環境で、リポジトリ直下から実行します。
+**bag・動画は公開リポジトリに含まれません。別途配置または生成してください。**
 
-Install git:
+```bash
+source /opt/ros/humble/setup.bash
+colcon build --packages-select robovision_images
+source install/setup.bash
 
-```
-sudo apt-get install git
-```
-
-## 1. ROS2 Install:
-
-### ROS2 Humble for Ubuntu 22.04:
-
-Follow the indications here:
-
-```
-https://docs.ros.org/en/humble/Installation.html
-```
-
-### `cv_bridge`
-
-If you already have ROS Humble installed, you can reinstall `cv_bridge` with the following command:
-
-```
-sudo apt-get install --reinstall ros-humble-cv-bridge
+# Publishのみ。保存済み点群なのでAI推論不要
+ros2 bag play data/rosbags/video_01 --loop
 ```
 
-## 2. Get the introduction to robot vision libraries:
+またはbag再生とRVizをまとめて起動します（上記のbag再生とは同時起動しない）。
 
-### 2.1 Clone this repository
-
-First, create a workspace:
-
-```
-cd ~
-mkdir -p robovision_ros2_ws/src
-cd ~/robovision_ros2_ws/src
-git clone https://github.com/ARTenshi/robovision_ros2.git
+```bash
+ros2 launch robovision_images play_depth_bag.launch.py \
+  bag:=$PWD/data/rosbags/hoodie_01
 ```
 
-### 2.2 Download additional data
+RVizの描画にはGPUを使う場合がありますが、保存済みbagの再生ではDepth推論しません。
 
-This project requires additional data files, available [here (Google Drive)](https://bit.ly/3WjWnI2).
+## ディレクトリ構成
 
-Download those folders into the `~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/` folder.
-
-### 2.3 Compile your code
-
-```
-cd ~/robovision_ros2_ws
-colcon build
-```
-
-#### Troubleshooting
-
-If there are errors with `cv_bridge`, you might need to compile it from source. 
-
-1. Install Dependencies
-```
-sudo apt-get update
-sudo apt-get install -y python3-opencv libopencv-dev ros-humble-cv-bridge-msgs
+```text
+robovision_1/           画像教材・単眼Depthノード・再生launch・RViz設定
+robovision_2/           グレースケール・色マスク等の画像処理教材
+robovision_3/           実測RGB-Dの同期・顔検出・点群生成
+robovision_4/           ROSサービス教材
+robovision_interfaces/ メッセージ・サービス定義
+test/                  独立ROSパッケージ rgbd_cloud_demo
+tools/                 動画→bagのオフライン変換
+docs/                  セットアップ・データ説明・変更レポート
+data/                  教材画像・bagメタデータ（大容量実体はローカル）
 ```
 
-2. Set Up Workspace
-```
-mkdir -p ~/ros2_ws/src && cd ~/ros2_ws/src
-git clone https://github.com/ros-perception/vision_opencv.git
-cd vision_opencv && git checkout humble
-```
+`rgbd_reader.cpp` と `tmp.cpp` は既存の実験コードとして保持しています。
+新規利用では検証済みの `rgbd_reader_sync` または `rgbd_cloud_demo` を推奨します。
 
-3. Build and Source
-```
-cd ~/ros2_ws
-colcon build --packages-select cv_bridge
-source ~/ros2_ws/install/setup.bash
-```
+## 権利・公開範囲
 
-(Optional) Add to `.bashrc`:
-```
-echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
-```
-
-### 2.3 Test the code
-
-Run the following command in a terminal:
-
-```
-source ~/robovision_ros2_ws/install/setup.bash
-ros2 run robovision_images my_publisher ~/robovision_ros2_ws/src/robovision_ros2/data/images/baboon.png
-```
-
-
-In a second terminal, run these commands:
-
-```
-source ~/robovision_ros2_ws/install/setup.bash
-ros2 run robovision_images my_subscriber
-```
-
-# Developing
-
-Basic concepts on ROS2 image publishers and subscribers can be found here:
-
-> [Lesson 1](https://github.com/ARTenshi/robovision_ros2/tree/main/robovision_1)
-
-To learn how to process RGB images, follow the indications here:
-
-> [Lesson 2](https://github.com/ARTenshi/robovision_ros2/tree/main/robovision_2)
-
-To work with RGBD images, enter here:
-
-> [Lesson 3](https://github.com/ARTenshi/robovision_ros2/tree/main/robovision_3)
-
-Finally, how to use services and clients in ROS2 can be seen here:
-
-> [Lesson 4](https://github.com/ARTenshi/robovision_ros2/tree/main/robovision_4)
-
-
-# Authors
-
-* **Luis Contreras** - [ARTenshi](https://artenshi.github.io/)
-* **Hiroyuki Okada** - [AIBot](http://aibot.jp/)
+元教材の著者表記を保持しています。上流にリポジトリ全体のLICENSEが確認できないため、
+本forkで独自に全体へライセンスを付け直していません。
+モデル・OpenCV付属のCascade・外部データの利用条件は各配布元を確認してください。
+個人撮影動画・bag・モデル重み・認証情報は公開対象外です。

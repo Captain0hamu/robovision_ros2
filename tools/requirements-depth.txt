@@ -1,0 +1,6 @@
+# Install a CPU/CUDA-compatible torch build separately; see docs/SETUP.md.
+# Known working NumPy/Transformers versions with ROS 2 Humble and cv_bridge.
+numpy==1.26.4
+transformers==4.40.0
+PyYAML>=6.0,<7
+# OpenCV (cv2), torch and ROS Python modules must also be available.
