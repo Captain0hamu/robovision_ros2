@@ -20,6 +20,13 @@ RGB-Dの同期や色付き点群の生成、通常のカメラ動画からのDep
 | 圧縮RGB-Dから点群を生成 | [rgbd_cloud_demo](test/README.md) |
 | 元教材 | [オリジナルREADME](docs/UPSTREAM_README.md) |
 
+### レッスンの日本語版
+
+1. [画像を送受信する](robovision_1/README_ja.md)
+2. [OpenCVで画像を処理する](robovision_2/README_ja.md)
+3. [RGB-D画像と点群を扱う](robovision_3/README_ja.md)
+4. [サービスとクライアントを使う](robovision_4/README_ja.md)
+
 ## bagを再生する
 
 Ubuntu 22.04 / ROS 2 Humble 環境で、リポジトリ直下から実行します。

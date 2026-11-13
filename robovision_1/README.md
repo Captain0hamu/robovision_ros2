@@ -1,5 +1,7 @@
 # Image Publishers and Subscribers in ROS2
 
+[日本語版](README_ja.md)
+
 The goal of this repository is to introduce students to image publishers and subscribers using ROS2 and OpenCV.
 
 # 0 CMakeList.txt and package.xml
@@ -751,4 +753,3 @@ def callback_scaled_image(self, msg)
 
 * **Luis Contreras** - [ARTenshi](https://artenshi.github.io/)
 * **Hiroyuki Okada** - [AIBot](http://aibot.jp/)
-

@@ -1,5 +1,7 @@
 # Point Cloud processing with ROS
 
+[日本語版](README_ja.md)
+
 We present an introduction to Point Cloud data in ROS and propose a simple task where the students should track a person moving in front of an RGBD camera mounted on a mobile robot.
 
 # 0. Get the additional data

@@ -1,762 +1,206 @@
-# ROSを使ったPoint Cloud処理
+# Lesson 3：RGB-D画像と点群を扱う
 
-この教材では、ROSにおける **Point Cloud（点群）データ**について入門的に学びます。
+[English](README.md) · [前へ：画像処理](../robovision_2/README_ja.md) · [次へ：サービス](../robovision_4/README_ja.md)
 
-また、簡単な課題として、
+RGB-Dカメラは、カラー画像に加えて奥行きの情報を取得します。
+このレッスンではDepthと点群の関係を学び、画像上の点に対応する3D位置を読み取ります。
+最後に、人物の位置を求める処理を考えます。
 
-**移動ロボットに搭載されたRGB-Dカメラの前を動いている人物を追跡する**
+ROSパッケージ名は `robovision_rgbd` です。
+元教材の説明に加え、このforkで追加した同期ノードの使い方もまとめています。
 
-プログラムを作成します。
+## 1. データとノードを選ぶ
 
----
+元教材のbagは [元READMEの配布先](../docs/UPSTREAM_README.md#22-download-additional-data) から入手し、
+`data/rosbags/` に配置してください。GitHubにはbag本体を含めていません。
 
-# 0. 追加データの準備
+| データ | このforkでの使い方 |
+|---|---|
+| `person_static` / `person_dynamic` | このレッスンの `rgbd_reader_sync` で、RGB・Depthから点群を生成 |
+| `person_rgbd_1` | [rgbd_cloud_demo](../test/README.md) で圧縮RGB-Dを展開して点群を生成 |
+| `video_*` / `hoodie_*` | [保存済みbag](../data/rosbags/VIDEO_BAGS.md) を再生。DepthはAI推定値 |
 
-## 0.1 Rosbagデータ
+元の `rgbd_reader.cpp` は実験途中で、PointCloud2をCameraInfoのトピックから受け取ろうとするなどの問題があります。
+これから試す場合は、以下の同期ノードを使ってください。
+Python版 `scripts/rgbd_reader.py` は元教材の点群読み取りを学ぶために残しています。
 
-まず、用意されている追加データをダウンロードしておいてください。
+## 2. ビルドして起動する
 
-ダウンロードしたフォルダは、以下のディレクトリに配置します。
-
-```bash
-~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/
-```
-
-正しく配置できているか確認してみましょう。
-
-1つ目のターミナルで、次のコマンドを実行します。
-
-```bash
-ros2 bag play ~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/person_static --loop
-```
-
-次に、2つ目のターミナルで以下を実行します。
+以下はリポジトリのルートから実行します。
 
 ```bash
-ros2 topic list
+source /opt/ros/humble/setup.bash
+colcon build --packages-select robovision_rgbd
+source install/setup.bash
+ros2 launch robovision_rgbd rgbd_reader_sync.launch.py
 ```
 
-すると、複数のROS topicが表示されるはずです。
-
-# ROSを使ったPoint Cloud処理
-
-この教材では、ROSにおける **Point Cloud（点群）データ**について紹介します。
-
-また、簡単な課題として、
-
-**移動ロボットに搭載されたRGB-Dカメラの前を動いている人物を追跡する**
-
-プログラムを作成します。
-
----
-
-# 0. 追加データの準備
-
-## 0.1 Rosbagデータ
-
-まず、用意されている追加データをダウンロードしておいてください。
-
-ダウンロードしたフォルダは、以下のディレクトリに配置してください。
+別のターミナルで環境を読み込み、bagを再生します。
+ノードを先に起動しておくと、冒頭のフレームも受信しやすくなります。
 
 ```bash
-~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 bag play data/rosbags/person_static --clock --loop
 ```
 
-正しく配置できているか確認してみましょう。
+動きのあるデータで試すなら、`person_static` を `person_dynamic` に変えてください。
+GUIにはOpenCVとRVizを表示できる環境が必要です。RVizだけを止めたい場合は
+launchに `rviz:=false` を付けます。OpenCVの画像表示は残ります。
 
-1つ目のターミナルで次を実行します。
-
-```bash
-ros2 bag play ~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/person_static --loop
-```
-
-次に、2つ目のターミナルで以下を実行します。
+### 入出力を確認する
 
 ```bash
 ros2 topic list
+ros2 topic info /camera/depth_registered/synced_points
+ros2 topic echo /object_centroid --once
 ```
 
-すると、複数のROS topicが表示されるはずです。
+| 用途 | トピック | 型 |
+|---|---|---|
+| RGB入力 | `/camera/rgb/image_rect_color` | `sensor_msgs/msg/Image` |
+| Depth入力 | `/camera/depth_registered/image` | `sensor_msgs/msg/Image` |
+| カメラ情報 | `/camera/rgb/camera_info` | `sensor_msgs/msg/CameraInfo` |
+| 生成した点群 | `/camera/depth_registered/synced_points` | `sensor_msgs/msg/PointCloud2` |
+| サンプル点の位置 | `/object_centroid` | `geometry_msgs/msg/Pose` |
 
----
+## 3. RGBとDepthの違い
 
-# 1. RGB-D画像について理解する
+RGB画像は画素ごとの色、Depth画像は画素ごとの奥行きを表します。
+ここでいう奥行きは、カメラの光軸方向の距離Zです。カメラから点までの直線距離とは区別します。
 
-このレッスンでは、これまでの2つのユニットで学習してきた内容をすべて利用します。
+このノードでは、Depthを次の単位として扱います。
 
-まずは `rgbd_reader.py` のコードを確認してみましょう。
+| encoding | データ型 | 単位 |
+|---|---|---|
+| `16UC1` | 符号なし16bit整数、1チャンネル | mm。計算時に0.001倍してmへ変換 |
+| `32FC1` | 32bit浮動小数点、1チャンネル | m |
 
-main関数を見ると、これまでと同じように、最初にnodeを初期化しています。
+実際に使うセンサーやデータの仕様も確認してください。
+**表示用に0〜1へ正規化したDepthを、3D座標の計算に使ってはいけません。**
+画面表示には正規化したコピーを使い、計算用の距離値はそのまま残します。
 
-```python
-super().__init__("point_cloud_centroid")
-```
+透明な物体、反射の強い面、センサーの測定範囲外などでは、Depthが得られないことがあります。
+無効値はデータによって0やNaNなどで表されます。測定可能な距離もセンサーごとに異なります。
 
-その後、これから使用するtopicをsubscribeします。
+## 4. DepthからXYZを計算する
 
-```python
-self.rgb_subscriber_ = self.create_subscription(
-    Image, "/camera/rgb/image_rect_color", self.callback_rgb_rect, 10)
-self.depth_subscriber_ = self.create_subscription(
-    Image, "/camera/depth_registered/image", self.callback_depth_rect, 10)
-self.point_cloud_subscriber_ = self.create_subscription(
-    PointCloud2, "/camera/depth_registered/points", self.callback_point_cloud, 10)
-```
+RGBとDepthを組み合わせるには、DepthがRGBの画素に位置合わせされている必要があります。
+このノードは位置合わせや歪み補正を行いません。画像のサイズが同じだけでは、位置合わせ済みとは判断できません。
 
-ここでは、subscriberのcallback関数を使って、それぞれ異なる頻度で変数を更新し、それとは別にtimer関数を使って取得した情報を処理することの重要性が分かります。
-
-今回は同じRGB-Dセンサから送られてくる3つのtopicをsubscribeしています。
-
-- **RGB画像**
-- **Depth画像**
-- **3D点群であるPoint Cloud**
-
-です。
-
----
-
-RGB画像は、Red、Green、Blueの3チャンネルから構成されるカラー画像です。
-
-一方、Depth画像は、画像の各pixelについて、そこに映っている物体がカメラ中心を通る直交平面からどれくらい離れているかをメートル法で表したものです。
-
-これは、上から見たときに、ある点がカメラから水平方向にどれくらい離れているか、と考えることができます。
-
-この距離はその点の高さには依存しません。
-
----
-
-RGB画像については、これまでも `Image` topicを利用してきました。
-
-Depth画像は、各pixelに対応する距離をミリメートル単位のfloatとして持つ行列です。
-
-したがって、`callback_depth_rect` の中では次のように読み込みます。
-
-```python
-self.depth_=bridge_depth.imgmsg_to_cv2(msg,"32FC1").copy()
-self.depth_mat_ = np.array(self.depth_, dtype=np.float32)
-```
-
-値の範囲は400、つまり40cmから、10000、つまり10mまでです。
-
-そのため、画像として表示できる値の範囲へ正規化し、表示用のimage arrayとして保存します。
-
-```python
-cv2.normalize(self.depth_mat_, self.depth_, 0, 1, cv2.NORM_MINMAX)
-```
-
-**重要：**
-
-Depth情報はstructured infrared light sensor（構造化赤外光センサ）から取得されています。
-
-そのため、非常に反射率の高い表面や透明な表面ではDepth情報が歪む傾向があります。
-
-そのような点はDepth画像上では黒、つまり0のpixelとして表示されます。
-
-また、今回使用するRGB-Dセンサが読み取れる最短距離は40cmです。
-
-したがって、40cmより近い物体についても値は0になります。
-
----
-
-さらに、RGB画像とDepth画像を組み合わせることで、画像上の**すべてのpixelについて、実空間におけるXYZ座標を取得できます。**
-
-ただし、幸いなことに、この計算について深く扱う必要はありません。
-
-ROSがすでに計算してくれているからです。
-
-`PointCloud2` 型の
+位置合わせ済みのDepthと、対応するCameraInfoの投影行列Pを使って計算します。
 
 ```text
-/camera/depth_registered/points
+Z = depth（m）
+X = (u - cx) × Z / fx
+Y = (v - cy) × Z / fy
 ```
 
-というtopicから、この情報を取得できます。
+`u` は列、`v` は行です。`fx`・`fy` は画素単位の焦点距離、`cx`・`cy` は画像上の主点を表します。
+同じ画素のRGBをXYZと組み合わせると、色付き点群になります。
 
-ターミナルで、
+カメラの光学座標系では、Xは右、Yは下、Zは前が正です。
+ロボット本体の座標系とは軸の向きが異なる場合があるので、点群の `header.frame_id` を確認してください。
+
+## 5. PointCloud2を読む
+
+点群の型は次のコマンドで確認できます。
 
 ```bash
 ros2 interface show sensor_msgs/msg/PointCloud2
 ```
 
-と入力すると、このmessage typeがどのような構造になっているか確認できます。
+PointCloud2はXYZや色などをバイナリデータとして持ちます。
+値の場所と型は `fields`、1点のバイト数は `point_step`、1行のバイト数は `row_step` で分かります。
+データが常に「floatのXYZRGB順」とは限らないため、レイアウトを確認して読み取ります。
 
----
+### 画像の画素と対応する点群
 
-Point Cloud messageは、
+行・列の並びを保った点群をorganized cloudと呼びます。
+同期ノードはこの形式で出力し、640×480画像なら307,200点の配置になります。
+無効な点も位置を詰めずにNaNとして残すため、画像の画素との対応を保てます。
 
-```text
-(x, y, z, ...)
-```
-
-というtupleのリストとして3D点の情報を持っており、型は `PointCloud2` です。
-
-そのため、`callback_point_cloud` では次のように読み込みます。
-
-```python
-self.point_cloud_ = np.array(
-    list(pc2.read_points(msg, field_names=None, skip_nans=False))
-)
-```
-
-これによってPoint Cloudはlistとして読み込まれます。
-
-そこで、RGB画像と対応するmatrix形式になるようreshapeします。
-
-```python
-if msg.height > 1:
-    self.point_cloud_ = self.point_cloud_.reshape(
-        (msg.height, msg.width, -1)
-    )
-
-    rows, cols, _ = self.point_cloud_.shape
-    print(
-        'new message has arrived; point cloud size: rows: {}, cols: {}'
-        .format(rows, cols)
-    )
-```
-
----
-
-コードに戻ると、カメラの前に存在するobjectの3D位置をpublishするためのROS publisherがあります。
-
-topicには一意な名前を付ける必要があります。
-
-今回は、
-
-```text
-/object_centroid
-```
-
-という名前で、型は `Pose` としています。
-
-```python
-self.centroid_publisher_ = self.create_publisher(
-    Pose, "/object_centroid", 10)
-```
-
-`Pose` messageは `geometry_msgs` の型です。
-
-これは、カメラ中心を基準として、空間上のある対象について、
-
-- 3次元位置
-- quaternion形式の4次元orientation
-
-を保持します。
-
-具体的には、
-
-```text
-object_centroid.position.x
-object_centroid.position.y
-object_centroid.position.z
-
-object_centroid.orientation.x = quaternion[0]
-object_centroid.orientation.y = quaternion[1]
-object_centroid.orientation.z = quaternion[2]
-object_centroid.orientation.w = quaternion[3]
-```
-
-となります。
-
----
-
-`PointCloud2` messageにおける座標軸は次のようになっています。
-
-- **x:** カメラ中心から右方向が正
-- **y:** カメラ中心から下方向が正
-- **z:** カメラ中心から前方向が正
-
-カメラ中心を原点とした場合、
-
-- XY平面を正面から見たものと、その平面上に存在する点 `p` の **ROLL**
-- YZ平面を横から見たものと、その平面上に存在する点 `p` の **PITCH**
-- XZ平面を上から見たものと、その平面上に存在する点 `p` の **YAW**
-
-は、それぞれREADME中の図のようになります。
-
----
-
-### Homework 1.1
-
-`rgbd_reader.cpp` の実装を確認してください。
-
-C++版とPython版の構造は非常によく似ています。
-
-したがって、自分の要件に応じて、どちらを使用しても構いません。
-
----
-
-# 2. Point Cloudの操作
-
-## 2.1 単一要素へのアクセス
-
-ここから、`point_cloud_processing` というtimer関数の中で、取得した情報を処理していきます。
-
-Pythonでは、
-
-```python
-self.processing_timer_ = self.create_timer(
-    0.030,
-    self.point_cloud_processing
-)
-```
-
-となります。
-
-C++では、
+C++では、`sensor_msgs::PointCloud2ConstIterator<float>` で各フィールドを読み取れます。
+次はXYZがfloat32で、行の末尾に余分なバイトがないorganized cloudから、中央の点を読む例です。
 
 ```cpp
-processing_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(30),
-    std::bind(
-        &PointCloudCentroidNode::point_cloud_processing,
-        this
-    )
-);
+const std::size_t row = cloud.height / 2;
+const std::size_t col = cloud.width / 2;
+const std::size_t index = row * cloud.width + col;
+sensor_msgs::PointCloud2ConstIterator<float> x(cloud, "x");
+sensor_msgs::PointCloud2ConstIterator<float> y(cloud, "y");
+sensor_msgs::PointCloud2ConstIterator<float> z(cloud, "z");
+x += index;
+y += index;
+z += index;
 ```
 
-となります。
+Pythonでは `sensor_msgs_py.point_cloud2.read_points` を使えます。
+無効点を読み飛ばすと画素との対応が変わるため、画像の行・列で読むときは注意してください。
+戻り値の配列形式はライブラリの版にもよるので、型とshapeを確認して扱います。
 
----
+`video_*` や `hoodie_*` の点群は間引いた点を1列に並べた形式です。
+画像の行・列を、そのまま点群の添字には使えません。
 
-Pythonでは、普通のarrayと同じように、
+## 6. 位置をPoseで送る
 
-```python
-self.point_cloud_[row_id, col_id, 0]
-```
-
-とすることで、array内の1要素へアクセスできます。
-
-さらにX、Y、Zのいずれか1つの次元へアクセスしたい場合は、
-
-```python
-self.point_cloud_[row_id, col_id, 0][XYZ]
-```
-
-と直接指定できます。
-
-ここで、
-
-```text
-XYZ = 0 → X
-XYZ = 1 → Y
-XYZ = 2 → Z
-```
-
-です。
-
-今回の例では、画像中央にある点の3D情報を取得するために次のようにします。
-
-```python
-rows, cols, _= self.point_cloud_.shape
-
-row_id = int(rows/2)
-col_id = int(cols/2)
-
-p = [
-    float(self.point_cloud_[row_id, col_id, 0][0]),
-    float(self.point_cloud_[row_id, col_id, 0][1]),
-    float(self.point_cloud_[row_id, col_id, 0][2])
-]
-```
-
----
-
-C++ではmatrix内の要素へ、
+同期ノードは中央とその上下左右の5点を読み、`/object_centroid` へ順番に配信します。
+これは顔や人物の重心ではなく、画像内のサンプル点です。
 
 ```cpp
-point_cloud_.at<cv::Vec4f>(row_id, col_id)
+geometry_msgs::msg::Pose pose;
+pose.position.x = *x;
+pose.position.y = *y;
+pose.position.z = *z;
+pose.orientation.w = 1.0;
 ```
 
-としてアクセスします。
+Poseは位置と姿勢を持ちますが、時刻や座標系名は持ちません。
+必要なら `PoseStamped` などを使います。向きを指定しない場合は、
+姿勢を `(x, y, z, w) = (0, 0, 0, 1)` にします。
 
-個々のcomponentへは、
+点のXYZが分かっただけでは、対象の姿勢まで分かるわけではありません。
+姿勢を別に求めた場合は、roll・pitch・yawからクォータニオンへ変換できます。
 
 ```cpp
-point_cloud_.at<cv::Vec4f>(row_id, col_id)[XYZ]
+tf2::Quaternion q;
+q.setRPY(roll, pitch, yaw);
 ```
 
-としてアクセスできます。
+ROSのroll・pitch・yawは、それぞれX・Y・Z軸まわりの回転です。
+カメラの光学座標系を使う場合も、軸の定義を変えずに考えてください。
 
-Python版と同様、
+## 7. このforkで追加した同期処理
 
-```text
-XYZ = 0 → X
-XYZ = 1 → Y
-XYZ = 2 → Z
-```
+`src/rgbd_reader_sync.cpp` はRGB・Depth・CameraInfoをApproximateTimeで組み合わせ、
+点群生成と顔検出画像の表示を同じコールバックで処理します。
+顔枠を描く前のRGBから点群の色を取るので、緑の枠は点群に混ざりません。
 
-です。
+ただし、時刻が完全に一致する保証はありません。許容する時刻差は初期設定で50msです。
+点群の更新回数はDepthの枚数に制限され、RGBと同じfpsになるとは限りません。
+また、`/object_centroid` のタイマーは、新しい入力がなくても最新のサンプル値を繰り返し送ります。
 
-例えば、
+詳細な設定と確認結果は [RGBD_SYNC.md](RGBD_SYNC.md) を参照してください。
 
-```cpp
-int rows = point_cloud_.rows;
-int cols = point_cloud_.cols;
+## 8. 演習
 
-int row_id = rows / 2;
-int col_id = cols / 2;
+1. 画像内の5か所についてXYZを読み、右・下・奥へ動くと各値がどう変わるか確認してください。
+2. 画像の端などで無効値を探してください。C++なら `std::isfinite`、Pythonなら `math.isfinite` で確認できます。
+3. RGB・Depth・CameraInfoの時刻を調べ、同期の許容幅を変えたときの受信数を比べてください。
 
-cv::Vec4f point =
-    point_cloud_.at<cv::Vec4f>(row_id, col_id);
-```
+### 人物の位置を求める
 
-となります。
+元教材の発展課題は、カメラに映った人物の相対位置を求めることです。
 
----
+まず、XYZの範囲で3Dの箱を決め、その中にある有効点だけを選ぶ方法を考えてください。
+床や遠い背景を除外しやすくなります。Y軸は下向きなので、床を除く条件の符号に注意します。
+カメラが傾いている場合は、床の位置を高さだけでは判断できません。
 
-最後に、この値をglobal variableへ保存し、後ほどprogramのmain loopにおいてROS publisherからpublishします。
+次に、顔や身体の検出枠と点群を組み合わせてみてください。
+検出枠内の有効点から平均や中央値を求める方法がありますが、背景の混入や誤検出への対策も必要です。
+このforkの顔検出は2D表示だけで、顔の3D位置や追跡までは実装していません。
 
-Pythonでは、
+参考：[OpenCVのCascade Classifier](https://docs.opencv.org/4.x/db/d28/tutorial_cascade_classifier.html)
 
-```python
-self.centroid_=Pose()
-
-self.centroid_.position.x = p[0]
-self.centroid_.position.y = p[1]
-self.centroid_.position.z = p[2]
-
-self.centroid_.orientation.x=0.0
-self.centroid_.orientation.y=0.0
-self.centroid_.orientation.z=0.0
-self.centroid_.orientation.w=1.0
-
-# Publish centroid pose
-self.centroid_publisher_.publish(self.centroid_)
-```
-
-となります。
-
-C++では、
-
-```cpp
-geometry_msgs::msg::Pose centroid;
-
-centroid.position.x = static_cast<float>(point[0]); // x
-centroid.position.y = static_cast<float>(point[1]); // y
-centroid.position.z = static_cast<float>(point[2]); // z
-
-centroid.orientation.x = 0.0;
-centroid.orientation.y = 0.0;
-centroid.orientation.z = 0.0;
-centroid.orientation.w = 1.0;
-
-// Publish the centroid pose
-centroid_publisher_->publish(centroid);
-```
-
-となります。
-
----
-
-## 2.2 コードを実行する
-
-それではコードを実際に動かしてみましょう。
-
-以下のコマンドを実行します。
-
-```bash
-cd ~/robovision_ros2_ws
-colcon build
-```
-
-RGB-Dカメラを持っていなくても問題ありません。
-
-Turtlebot 2の上部、高さ1.0mの位置に取り付けたXTion Proから収集したデータを含むROS bagが用意されています。
-
-別のターミナルで、
-
-```bash
-ros2 bag play ~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/person_static --loop
-```
-
-を実行します。
-
-その後、さらに別のターミナルで、
-
-```bash
-ros2 topic list
-```
-
-と入力します。
-
-利用できるさまざまなtopicが表示されているでしょうか？
-
----
-
-Python実装を使用する場合は、
-
-```bash
-source ~/robovision_ros2_ws/install/setup.bash
-ros2 run robovision_rgbd rgbd_reader.py
-```
-
-と入力します。
-
-C++実装の場合は、
-
-```bash
-source ~/robovision_ros2_ws/install/setup.bash
-ros2 run robovision_rgbd rgbd_reader
-```
-
-と入力します。
-
-画像中央にある点の3D情報を確認できるでしょうか？
-
----
-
-最後に、新しいターミナルを開いて、
-
-```bash
-ros2 topic info /object_centroid
-```
-
-を実行します。
-
-その後、
-
-```bash
-ros2 topic echo /object_centroid
-```
-
-を実行します。
-
-すると、先ほどと同じ情報がROS topic上にpublishされていることを確認できるはずです。
-
----
-
-### Homework 2.1
-
-**1.**
-
-画像上の異なる5つの点について、3D位置を取得してください。
-
-異なる `row_id` と `col_id` を指定してみましょう。
-
-画像中央の点を基準として、X、Y、Zの値がどのように変化するか確認できますか？
-
-- Xは画像中央から**右方向が正**
-- Yは画像中央から**下方向が正**
-
-です。
-
----
-
-**2.**
-
-```text
-row_id = 0
-col_id = 0
-```
-
-の点について、3D情報はどうなっているでしょうか？
-
-structured lightの反射特性などによって、ある点の情報を取得できない場合があります。
-
-その場合、systemは、
-
-```text
-nan
-```
-
-という値を返します。
-
-Pythonでは、`math` libraryの、
-
-```python
-math.isnan()
-```
-
-を使うことで、あるvariableが `nan` かどうか確認できます。
-
-この関数は `True` または `False` を返します。
-
-例えば、
-
-```python
-if (not math.isnan(
-    self.point_cloud_[row_id, col_id, 0][0]
-)):
-```
-
-のような構造を使ってdataを検証できます。
-
-同様にC++では、
-
-```cpp
-std::isnan()
-```
-
-を使用できます。
-
----
-
-# 3. 最終プロジェクト
-
-これで、面白いrobot vision projectを作るために必要な道具はすべて揃いました。
-
-今回解決したい問題は次のものです。
-
-ロボットが、移動している人物の方向を向いているとします。
-
-そこで、
-
-**この人物がロボットの中心に対してどこにいるのか、その相対位置を求めたい**
-
-とします。
-
-ここではロボットの中心を、カメラの位置によって表現します。
-
-言い換えると、
-
-**`person_1` の3D位置を求めたい**
-
-ということです。
-
-では、どうすればよいでしょうか？
-
-RGB-Dカメラを持っていない場合は、
-
-```text
-~/robovision_ros2_ws/src/robovision_ros2/data/rosbags/
-```
-
-にある、
-
-```text
-person_static
-person_dynamic
-```
-
-というROS bagを利用できます。
-
----
-
-## ヒント
-
-Point Cloudには、カメラから見えている**すべての点の3D情報**が含まれていることを思い出してください。
-
-それなら、その範囲を限定してしまうのはどうでしょうか？
-
-余計な情報を取り除き、人物をより正確に追跡するための**有効領域**を作ることができます。
-
-つまり、3D空間の中にboxを作り、そのbox内部だけを処理対象にできます。
-
----
-
-画像内に存在するすべての3D点について、
-
-**その点がこのboxの中に入っているかどうか**
-
-を比較するような処理を作ることができます。
-
-ただし、最初にその点が `nan` ではないことを確認してください。
-
----
-
-適切な符号を使うことも忘れないでください。
-
-特に **Y軸** に注意してください。
-
-例えばカメラが床から1.0mの高さに設置されている場合、
-
-**床そのものではない点は、どのような条件を満たす必要があるでしょうか？**
-
-もう一度、Y軸の向きに特に注意してください。
-
----
-
-## ヒント
-
-`ROLL`、`PITCH`、`YAW` の定義を思い出してください。
-
-これらの値はquaternion形式へ変換できます。
-
-Pythonでは、
-
-```python
-from tf_transformations import quaternion_from_euler
-
-quaternion = quaternion_from_euler(
-    roll,
-    pitch,
-    yaw
-)
-```
-
-とします。
-
-そして、その値をvariableへ保存します。
-
-```python
-object_centroid.orientation.x = quaternion[0]
-object_centroid.orientation.y = quaternion[1]
-object_centroid.orientation.z = quaternion[2]
-object_centroid.orientation.w = quaternion[3]
-```
-
-C++でも同様に、
-
-```cpp
-tf2::Quaternion quaternion;
-quaternion.setRPY(roll, pitch, yaw);
-```
-
-として、
-
-```cpp
-centroid.orientation.x = quaternion.x();
-centroid.orientation.y = quaternion.y();
-centroid.orientation.z = quaternion.z();
-centroid.orientation.w = quaternion.w();
-```
-
-とします。
-
-それでは、Python版とC++版の両方を実装してみてください。
-
-Good luck!
-
----
-
-# Challenge 3.1
-
-どうすればperformanceをさらに改善できるでしょうか？
-
-**重要：各2D画像上の点には、Point Cloud内に対応する3D点が存在することを思い出してください。**
-
-この関係を利用できます。
-
-例えば、最初に人物の**顔を検出**して、その領域内に存在する3D点の平均を取る方法を試してみてもよいでしょう。
-
-OpenCVには、このような処理に役立つさまざまな関数が用意されています。
-
-例えばCascade Classifierがあります。
-
-```text
-https://docs.opencv.org/3.4/db/d28/tutorial_cascade_classifier.html
-```
-
----
-
-では、人物の顔だけではなく、**身体全体を検出**するのはどうでしょうか？
-
-そして、検出された人物のbounding box内に存在する3D点の平均を取得します。
-
-先ほどの例に、次のようなclassifierを追加できます。
-
-```python
-bodydetection = cv2.CascadeClassifier(
-    'cascades/haarcascade_fullbody.xml'
-)
-```
-
-このChallengeに挑戦してみますか？
-
----
-
-# Authors
-
-- **Luis Contreras** — ARTenshi
-- **Hiroyuki Okada** — AIBot
+元教材の著者：**Luis Contreras**（[ARTenshi](https://artenshi.github.io/)）、
+**Hiroyuki Okada**（[AIBot](http://aibot.jp/)）。日本語版はこのforkのコードに合わせて整理しています。

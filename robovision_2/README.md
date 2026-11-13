@@ -1,5 +1,7 @@
 # RGB Image Processing with OpenCV and ROS
 
+[日本語版](README_ja.md)
+
 The goal of this repository is to introduce students to RGB image processing using OpenCV and ROS.
 
 
@@ -495,4 +497,3 @@ Again, try your code as in the previous section.
 
 * **Luis Contreras** - [ARTenshi](https://artenshi.github.io/)
 * **Hiroyuki Okada** - [AIBot](http://aibot.jp/)
-
